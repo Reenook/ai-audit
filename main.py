@@ -31,7 +31,7 @@ app.add_middleware(
 class AuditRequest(BaseModel):
     url: str
     max_pages: int = 20
-    concurrency: int = 3  # number of pages crawled in parallel
+    concurrency: int = 2  # number of pages crawled in parallel
 
 
 async def fetch_pagespeed(url: str):
@@ -47,9 +47,7 @@ async def fetch_pagespeed(url: str):
         "seo": categories.get("seo", {}).get("score", 0) * 100,
     }
 
-# -----------------------------
-# Routes
-# -----------------------------
+
 @app.get("/")
 async def root():
     return {"message": "FastAPI audit backend is running!"}
