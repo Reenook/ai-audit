@@ -35,17 +35,27 @@ class AuditRequest(BaseModel):
 
 
 async def fetch_pagespeed(url: str):
-    api_url = f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url={url}&key={API_KEY}"
+    api_url = (
+        "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+        f"?url={url}&strategy=mobile&category=performance&category=accessibility&category=seo&key={API_KEY}"
+    )
+
     async with httpx.AsyncClient() as client:
         resp = await client.get(api_url)
         data = resp.json()
+
+    # PRINT RAW RESPONSE TO RAILWAY LOGS
+    print("PAGESPEED RAW RESPONSE:", data)
+
     lighthouse = data.get("lighthouseResult", {})
     categories = lighthouse.get("categories", {})
+
     return {
-        "performance": categories.get("performance", {}).get("score", 0) * 100,
-        "accessibility": categories.get("accessibility", {}).get("score", 0) * 100,
-        "seo": categories.get("seo", {}).get("score", 0) * 100,
+        "performance": int((categories.get("performance", {}).get("score", 0) or 0) * 100),
+        "accessibility": int((categories.get("accessibility", {}).get("score", 0) or 0) * 100),
+        "seo": int((categories.get("seo", {}).get("score", 0) or 0) * 100),
     }
+
 
 
 @app.get("/")
