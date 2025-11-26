@@ -9,15 +9,15 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 import httpx
 from dotenv import load_dotenv
 
-load_dotenv()  # Load .env file
+load_dotenv()  
 
 API_KEY = os.environ["GOOGLE_API_KEY"]
 
 app = FastAPI()
 
 origins = [
-    "http://localhost:3000",             # your local frontend
-    "https://your-frontend-domain.com", # deployed frontend
+    "http://localhost:3000",
+    "https://audit-jad4f5t9n-reenooks-projects.vercel.app/",
 ]
 
 app.add_middleware(
@@ -31,10 +31,10 @@ app.add_middleware(
 class AuditRequest(BaseModel):
     url: str
     max_pages: int = 20
-    concurrency: int = 2  # pages crawled in parallel
-    psi_concurrency: int = 2  # PageSpeed API requests in parallel
+    concurrency: int = 2
+    psi_concurrency: int = 2
 
-# Semaphore for PSI API throttling
+
 psi_semaphore = asyncio.Semaphore(2)
 
 async def fetch_pagespeed(url: str):
