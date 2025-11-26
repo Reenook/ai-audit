@@ -1,7 +1,6 @@
-# backend/main.py
 import os
-
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 import httpx
@@ -10,14 +9,30 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load .env file
 
+API_KEY = os.environ["GOOGLE_API_KEY"]
+
 app = FastAPI()
 
-API_KEY = os.environ['GOOGLE_API_KEY']
+
+origins = [
+    "http://localhost:3000",             # your local Next.js frontend
+    "https://your-frontend-domain.com", # your deployed frontend
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # allow GET, POST, OPTIONS, etc.
+    allow_headers=["*"],
+)
+
 
 class AuditRequest(BaseModel):
     url: str
     max_pages: int = 20
     concurrency: int = 3  # number of pages crawled in parallel
+
 
 async def fetch_pagespeed(url: str):
     api_url = f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url={url}&key={API_KEY}"
@@ -31,6 +46,13 @@ async def fetch_pagespeed(url: str):
         "accessibility": categories.get("accessibility", {}).get("score", 0) * 100,
         "seo": categories.get("seo", {}).get("score", 0) * 100,
     }
+
+# -----------------------------
+# Routes
+# -----------------------------
+@app.get("/")
+async def root():
+    return {"message": "FastAPI audit backend is running!"}
 
 @app.post("/audit")
 async def audit_site(req: AuditRequest):
