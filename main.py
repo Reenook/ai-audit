@@ -17,7 +17,7 @@ app = FastAPI()
 
 origins = [
     "http://localhost:3000",
-    "https://audit-jet-five.vercel.app/",
+    "https://audit-jet-five.vercel.app",
 ]
 
 app.add_middleware(
