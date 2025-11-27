@@ -74,70 +74,83 @@ async def root():
 @app.post("/audit")
 async def audit_site(req: AuditRequest):
     visited = set()
-    results = []
-    queue = [req.url]
+    queue = asyncio.Queue()
+    await queue.put(req.url)
+
+    crawl_results = []
     crawl_semaphore = asyncio.Semaphore(req.concurrency)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
 
-        async def crawl(url: str):
-            async with crawl_semaphore:
-                if url in visited or len(visited) >= req.max_pages:
-                    return
-                visited.add(url)
-                page_data = {"url": url}
+        async def crawl():
+            while len(visited) < req.max_pages and not queue.empty():
+                url = await queue.get()
 
-                try:
-                    page = await browser.new_page()
-                    response = await page.goto(url, timeout=30000)
-                    page_data["status_code"] = response.status if response else None
-                    page_data["title"] = await page.title() or ""
+                async with crawl_semaphore:
+                    if url in visited:
+                        continue
 
-                    # Meta description
-                    meta_desc = await page.eval_on_selector(
-                        'meta[name="description"]',
-                        'el => el ? el.getAttribute("content") : ""'
-                    )
-                    page_data["meta_description"] = meta_desc or ""
+                    visited.add(url)
+                    page_data = {"url": url}
 
-                    # H1 tags
-                    h1_tags = await page.eval_on_selector_all(
-                        "h1",
-                        "nodes => nodes.map(n => n.innerText)"
-                    )
-                    page_data["h1"] = h1_tags
+                    try:
+                        context = await browser.new_context()
+                        page = await context.new_page()
 
-                    # Internal links
-                    anchors = await page.query_selector_all("a[href]")
-                    internal_links = []
-                    for a in anchors:
-                        href = await a.get_attribute("href")
-                        if href:
-                            full_url = urljoin(url, href)
-                            if full_url.startswith(req.url) and full_url not in visited:
-                                queue.append(full_url)
-                                internal_links.append(full_url)
-                    page_data["internal_links"] = internal_links
+                        resp = await page.goto(url, timeout=30000)
+                        page_data["status_code"] = resp.status if resp else None
+                        page_data["title"] = await page.title()
 
-                    # PageSpeed Insights metrics
-                    pagespeed_metrics = await fetch_pagespeed(url)
-                    page_data["pagespeed"] = pagespeed_metrics
+                        # Meta description
+                        desc = page.locator("meta[name='description']")
+                        page_data["meta_description"] = await desc.get_attribute("content") or ""
 
-                    await page.close()
+                        # H1 tags
+                        h1_loc = page.locator("h1")
+                        count = await h1_loc.count()
+                        page_data["h1"] = [await h1_loc.nth(i).inner_text() for i in range(count)]
 
-                except PlaywrightTimeoutError:
-                    page_data["error"] = "Timeout"
-                except Exception as e:
-                    page_data["error"] = str(e)
+                        # Internal links
+                        internal_links = []
+                        all_links = page.locator("a[href]")
+                        link_count = await all_links.count()
 
-                results.append(page_data)
+                        for i in range(link_count):
+                            href = await all_links.nth(i).get_attribute("href")
+                            if not href:
+                                continue
+                            full = urljoin(url, href)
 
-        # Crawl queue incrementally to respect concurrency
-        while queue and len(visited) < req.max_pages:
-            batch = [queue.pop(0) for _ in range(min(req.concurrency, len(queue)))]
-            await asyncio.gather(*(crawl(u) for u in batch))
+                            # Internal and not visited
+                            if full.startswith(req.url) and full not in visited:
+                                internal_links.append(full)
+                                await queue.put(full)
+
+                        page_data["internal_links"] = internal_links
+
+                        await context.close()
+
+                    except Exception as e:
+                        page_data["error"] = str(e)
+
+                    crawl_results.append(page_data)
+
+        # Start crawl workers
+        workers = [asyncio.create_task(crawl()) for _ in range(req.concurrency)]
+        await asyncio.gather(*workers)
 
         await browser.close()
 
-    return {"results": results}
+
+
+    async def fetch_and_attach_psi(page):
+        url = page["url"]
+        psi_result = await fetch_pagespeed(url)
+        page["pagespeed"] = psi_result
+        return page
+
+    psi_tasks = [fetch_and_attach_psi(page) for page in crawl_results]
+    final_results = await asyncio.gather(*psi_tasks)
+
+    return {"results": final_results}
