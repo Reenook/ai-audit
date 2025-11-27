@@ -31,7 +31,7 @@ app.add_middleware(
 class AuditRequest(BaseModel):
     url: str
     max_pages: int = 20
-    concurrency: int = 2
+    concurrency: int = 5
     psi_concurrency: int = 2
 
 
